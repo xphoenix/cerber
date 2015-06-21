@@ -14,10 +14,17 @@ type Hasher func(string) (string, error)
 //ResolveHashAlgorithm returns hashing function based on the algorithm name
 func ResolveHashAlgorithm(name string) (Hasher, error) {
 	switch strings.ToUpper(name) {
+	case "NONE":
+		return none, nil
 	case "MD5":
 		return md5Hasher, nil
 	}
 	return nil, fmt.Errorf("Unknown hashing algorithm: %s", name)
+}
+
+// return password as it is - no hashing
+func none(passwd string) (string, error) {
+	return passwd, nil
 }
 
 // convert string into md5 representation
