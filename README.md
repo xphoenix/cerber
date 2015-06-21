@@ -35,14 +35,13 @@ groups:
   - xphoenix/distribution:pull
   - xphoenix/mongo:pull
   - xphoenix/vulcand:pull
-  - crafthands/web:pull
 
 # Users with groups assigned
 users:
 - name: admin
   passwd: 21232f297a57a5a743894a0e4a801fc3
   groups: [read,write]
-- name: deplyer
+- name: deployer
   passwd: b5f6e212492dd8ead88f44201ab105d7
   groups: [read]
 ```
