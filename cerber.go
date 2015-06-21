@@ -49,7 +49,7 @@ func (c *Cerber) AddProvider(p zone.Provider) {
 
 // FindZone looks up zone with given name across all provider registered in the Cerber instance. If there is no
 // provider with Zone has given name error returns
-func (c *Cerber) FindZone(name string) (*zone.Zone, error) {
+func (c *Cerber) FindZone(name string) (zone.Zone, error) {
 	for _, p := range c.providers {
 		z, err := p.FindZone(name)
 		if err != nil {
@@ -66,7 +66,7 @@ func (c *Cerber) FindZone(name string) (*zone.Zone, error) {
 
 // Authorize given user in the given zone
 // Provided password must be encrypted by zone specific method
-func (c *Cerber) Authorize(z *zone.Zone, user, passwd string) ([]string, error) {
+func (c *Cerber) Authorize(z zone.Zone, user, passwd string) ([]string, error) {
 	// TODO: check password, calculate & resolve actions
 	usr, err := z.FindUser(user)
 	if err != nil {
@@ -104,20 +104,20 @@ func (c *Cerber) GenerateToken(service, userName, account, scope string, claims 
 		return nil, fmt.Errorf("Failed to get certificate for the zone '%s': %s", service, err)
 	}
 
+	// Copy claims first, later stages will override system claims with neccessary values
+	token := jwt.New(jwt.GetSigningMethod("RS256"))
+	for k, v := range claims {
+		token.Claims[k] = v
+	}
+
 	// Copy certificates will be used to validate signature
 	// TODO: support other signing methods
-	token := jwt.New(jwt.GetSigningMethod("RS256"))
 	size := len(cert.Certificate)
 	array := make([]string, size, size)
 	for i, cert := range cert.Certificate {
 		array[i] = base64.StdEncoding.EncodeToString(cert)
 	}
 	token.Header["x5c"] = array
-
-	// Copy claims
-	for k, v := range claims {
-		token.Claims[k] = v
-	}
 
 	// Set Cerber specific claims
 	// TODO: move time related configs into zone

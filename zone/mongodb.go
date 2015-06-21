@@ -40,6 +40,6 @@ func (m *MongodbProvider) IsOnline() (bool, error) {
 }
 
 // FindZone returns all available zones known by the current Provider
-func (m *MongodbProvider) FindZone(zone string) (*Zone, error) {
+func (m *MongodbProvider) FindZone(zone string) (Zone, error) {
 	return nil, nil
 }

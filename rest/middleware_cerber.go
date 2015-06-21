@@ -11,7 +11,7 @@ import (
 )
 
 // CerberMW is go-rest middlware that protect resources with JWT tokens
-type CerberMW struct {
+type CerberMiddleware struct {
 	// Cerber instance to create/validate tokens
 	Cerber *cerber.Cerber
 
@@ -35,7 +35,7 @@ func NullExceptionSelector(request *rest.Request) (bypass bool, err error) {
 }
 
 // MiddlewareFunc makes Cerber implement the Middleware interface.
-func (mw *CerberMW) MiddlewareFunc(handler rest.HandlerFunc) rest.HandlerFunc {
+func (mw *CerberMiddleware) MiddlewareFunc(handler rest.HandlerFunc) rest.HandlerFunc {
 
 	if mw.Cerber == nil {
 		log.Fatal("Cerber instance is required")

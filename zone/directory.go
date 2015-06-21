@@ -62,7 +62,7 @@ func (d *DirectoryProvider) Start() error {
 			return fmt.Errorf("Failed to read file: %s", fullPath)
 		}
 
-		z := Zone{}
+		z := yamlZone{}
 		parseErr := yaml.Unmarshal(bytes, &z)
 		if parseErr != nil {
 			return fmt.Errorf("Failed to parse file: %s %s", fullPath, parseErr)
@@ -70,11 +70,11 @@ func (d *DirectoryProvider) Start() error {
 
 		i, err := d.FindZone(z.Name())
 		if err == nil {
-			return fmt.Errorf("Found duplicated zone: %s", i.Description())
+			return fmt.Errorf("Found duplicated zone: %s (%s)", i.Name(), i.Description())
 		}
 
 		// Save zone
-		d.registerZone(z)
+		d.registerZone(&z)
 	}
 	return nil
 }
@@ -95,14 +95,14 @@ func (d *DirectoryProvider) IsOnline() (bool, error) {
 }
 
 // FindZone returns first available zone known by the current Provider and has given name
-func (d *DirectoryProvider) FindZone(name string) (*Zone, error) {
+func (d *DirectoryProvider) FindZone(name string) (Zone, error) {
 	name = strings.ToUpper(name)
 	z, ok := d.zones[name]
 	if !ok {
 		return nil, fmt.Errorf("There is no zone with the given name: %s", name)
 	}
 
-	return &z, nil
+	return z, nil
 }
 
 func (d *DirectoryProvider) registerZone(z Zone) {

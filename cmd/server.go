@@ -164,7 +164,7 @@ func configureAPI(api *rest.Api, cerber *cerber.Cerber) {
 	api.Use(
 		&handlers.LogMiddleware{Logger: logrus.StandardLogger()},
 		// Authentification & Authorization middleware to control access to API endpoint
-		&handlers.CerberMW{
+		&handlers.CerberMiddleware{
 			Cerber: cerber,
 
 			// Allow login to bypass JWT auth
