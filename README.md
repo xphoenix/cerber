@@ -47,12 +47,12 @@ users:
 ```
 
 #todo
-- none hasher (trivial)
+- ~~none hasher (trivial)~~
 - refactor actions to be in form <type>:<name>:<action>
-- refresh token implementation
-- decode token implementation (testing...)
+- ~~refresh token implementation~~
+- ~~decode token implementation (testing...)~~
 - tests
-- Zone must be interface
+- ~~Zone must be interface~~
 - MongoDB implementation
 - Inotify for directory implementation
 - Zone/Users/Groups cache
