@@ -17,8 +17,8 @@ hashing: md5
 sign:
   method: RS256
   cert:
-    key: /home/andrphi/.zones/sign/registry.key
-    crt: /home/andrphi/.zones/sign/registry.crt
+    key: /etc/zones/distribution.key
+    crt: /etc/zones/distribution.crt
 
 # Group defines set of action allowed
 groups: 
