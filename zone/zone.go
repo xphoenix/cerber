@@ -1,6 +1,9 @@
 package zone
 
-import "crypto/tls"
+import (
+	"crypto/tls"
+	"time"
+)
 
 // Group is a named set of permitted actions. Each action must be in form of
 // resource:action, where resource & action are strings
@@ -27,6 +30,14 @@ type Zone interface {
 	// by Cerber directly
 	Description() (desc string)
 
+	// Timeout returns duration while token in that zone considered as valid. During that time token could be refreshed
+	// and prolong itself life time
+	Timeout() time.Duration
+
+	// Maximum life time for a token. Eac token could be refreshed non limited number of time, but total life time
+	// can't be more then MaxRefresh duration. If configured value is 0 then no MaxRefresh limit applied
+	MaxRefresh() time.Duration
+
 	// Certificate provides information enought to sign token issued for the users in
 	// the current Zone
 	Certificate() (*tls.Certificate, error)
@@ -39,7 +50,4 @@ type Zone interface {
 
 	// FindGroup performs lookup of the group by the given name
 	FindGroup(groupID string) (*Group, error)
-
-	// Validate zone configuration. Return nil if configuration is correct or error desription
-	Validate() error
 }

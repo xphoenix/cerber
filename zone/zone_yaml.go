@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/xphoenix/cerber/config"
 )
@@ -13,6 +14,9 @@ import (
 type yamlZone struct {
 	ZName        string `yaml:"name"`
 	ZDescription string `yaml:"description,omitempty"`
+
+	ZTimeout    *time.Duration `yaml:"timeout"`
+	ZMaxRefresh time.Duration  `yaml:"maxrefresh"`
 
 	ZGroups []Group `yaml:"groups"`
 	ZUsers  []User  `yaml:"users"`
@@ -39,6 +43,20 @@ func (z *yamlZone) Name() (name string) {
 // by Cerber directly
 func (z *yamlZone) Description() (desc string) {
 	return z.ZDescription
+}
+
+// Timeout returns duration while token in that zone considered as valid
+func (z *yamlZone) Timeout() time.Duration {
+	if z.ZTimeout == nil {
+		return time.Duration(15) * time.Minute
+	}
+
+	return *z.ZTimeout
+}
+
+// MaxRefresh returns maximum life time for a token
+func (z *yamlZone) MaxRefresh() time.Duration {
+	return z.ZMaxRefresh
 }
 
 // Certificate provides information enought to sign token issued for the users in
@@ -77,9 +95,4 @@ func (z *yamlZone) FindGroup(groupID string) (*Group, error) {
 		}
 	}
 	return nil, fmt.Errorf("Unknown group: %s", groupID)
-}
-
-// Validate zone configuration. Return nil if configuration is correct or error desription
-func (z *yamlZone) Validate() error {
-	return nil
 }

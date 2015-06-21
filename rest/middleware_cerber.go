@@ -10,7 +10,7 @@ import (
 	"github.com/xphoenix/cerber"
 )
 
-// CerberMW is go-rest middlware that protect resources with JWT tokens
+// CerberMiddleware is go-rest middlware that protect resources with JWT tokens
 type CerberMiddleware struct {
 	// Cerber instance to create/validate tokens
 	Cerber *cerber.Cerber
@@ -69,14 +69,13 @@ func (mw *CerberMiddleware) MiddlewareFunc(handler rest.HandlerFunc) rest.Handle
 				return
 			}
 
-			id := token.Claims["id"].(string)
-			request.Env["REMOTE_USER"] = id
-			request.Env["JWT_PAYLOAD"] = token.Claims
-
 			if allowed, err := mw.Authorizator(token, request); !allowed || err != nil {
 				UnauthorizedJWT(writer, request, err)
 				return
 			}
+
+			request.Env["REMOTE_USER"] = token.Claims["id"].(string)
+			request.Env["JWT_TOKEN"] = token
 		}
 
 		// Execute real action
@@ -90,6 +89,16 @@ func Cerber(request *rest.Request) *cerber.Cerber {
 	if !ok {
 		log.Panic("CERBER environment variable has wrong type")
 	}
+	return c
+}
+
+// Token extracts JWT token for the current request
+func Token(request *rest.Request) *jwt.Token {
+	c, ok := request.Env["JWT_TOKEN"].(*jwt.Token)
+	if !ok {
+		log.Panic("JWT token has wrong type")
+	}
+
 	return c
 }
 

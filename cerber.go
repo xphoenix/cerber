@@ -1,6 +1,7 @@
 package cerber
 
 import (
+	"crypto/x509"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -98,16 +99,108 @@ func (c *Cerber) GenerateToken(service, userName, account, scope string, claims 
 		return nil, fmt.Errorf("Unknown zone: %s", service)
 	}
 
-	// Create token
-	cert, err := z.Certificate()
-	if err != nil {
-		return nil, fmt.Errorf("Failed to get certificate for the zone '%s': %s", service, err)
-	}
-
 	// Copy claims first, later stages will override system claims with neccessary values
 	token := jwt.New(jwt.GetSigningMethod("RS256"))
 	for k, v := range claims {
 		token.Claims[k] = v
+	}
+
+	// Set Cerber specific claims
+	// TODO: move time related configs into zone
+	token.Claims["id"] = userName
+	token.Claims["aud"] = z.Name()
+	token.Claims["exp"] = time.Now().Add(z.Timeout()).Unix()
+	token.Claims["orig_iat"] = time.Now().Unix()
+
+	return c.signToken(z, token)
+}
+
+// ParseToken parse given token string, validates content and and return instance of jwt.Token
+func (c *Cerber) ParseToken(tokenInput string) (*jwt.Token, error) {
+	// JWT parse will call provided callback to get private key for signature verification. However
+	// it is neccessary to check if signing algorithm is the same as in zone. Zone name could be found
+	// in aud claim
+	t, err := jwt.Parse(tokenInput, func(token *jwt.Token) (interface{}, error) {
+		// Lookup for zone name
+		name := token.Claims["aud"].(string)
+		if name == "" {
+			return nil, errors.New("Input doesn't look like Cerber issued token")
+		}
+
+		// Find zone for verificaton
+		zone, err := c.FindZone(name)
+		if err != nil {
+			return nil, fmt.Errorf("Failed to find zone: %s", name)
+		}
+
+		// Verify used algorithm is the one zone expects to have
+		if token.Header["alg"] != "RS256" {
+			return nil, fmt.Errorf("Unexpected signing algorithm: %s", token.Header["alg"])
+		} else if _, ok := token.Method.(*jwt.SigningMethodRSA); !ok {
+			return nil, fmt.Errorf("Unexpected signing method: %v", token.Header["alg"])
+		}
+
+		// Use zone private key for validation
+		cert, err := zone.Certificate()
+		if err != nil {
+			return nil, fmt.Errorf("Failed to request zone key for validation: %s", zone.Name())
+		}
+
+		if cert.Leaf == nil {
+			// Use zone public key. Leaft certificate is the first in the chain
+			c, err := x509.ParseCertificate(cert.Certificate[0])
+			if err != nil {
+				return nil, fmt.Errorf("Failed to parse zone certificate: %s", err)
+			}
+			cert.Leaf = c
+		}
+
+		return cert.Leaf.PublicKey, nil
+	})
+
+	if err != nil {
+		return nil, fmt.Errorf("Failed to parse token: %s", err)
+	}
+
+	return t, nil
+}
+
+// RefreshToken extends token life for zone Timeout starting from the call time. If Zone#MaxRefresh passed since token
+// was issued then refresh is not possible and error returns. In case if token was refreshed fully signed token string
+// returns
+func (c *Cerber) RefreshToken(token *jwt.Token) (*string, error) {
+	name := token.Claims["aud"].(string)
+	if name == "" {
+		return nil, errors.New("Input doesn't look like Cerber issued token")
+	}
+
+	// Find zone for verificaton
+	zone, err := c.FindZone(name)
+	if err != nil {
+		return nil, fmt.Errorf("Failed to find zone: %s", name)
+	}
+
+	origIat := int64(token.Claims["orig_iat"].(float64))
+	if zone.MaxRefresh() > 0 && origIat < time.Now().Add(-zone.MaxRefresh()).Unix() {
+		return nil, fmt.Errorf("Token excited maximum lifetime configured for the zone, login again: %s", name)
+	}
+
+	newToken := jwt.New(jwt.GetSigningMethod("RS256"))
+	for key := range token.Claims {
+		newToken.Claims[key] = token.Claims[key]
+	}
+
+	newToken.Claims["id"] = token.Claims["id"]
+	newToken.Claims["exp"] = time.Now().Add(zone.Timeout()).Unix()
+	newToken.Claims["orig_iat"] = origIat
+	return c.signToken(zone, newToken)
+}
+
+func (c *Cerber) signToken(z zone.Zone, token *jwt.Token) (*string, error) {
+	// Create token
+	cert, err := z.Certificate()
+	if err != nil {
+		return nil, fmt.Errorf("Failed to get certificate for the zone '%s': %s", z.Name(), err)
 	}
 
 	// Copy certificates will be used to validate signature
@@ -119,25 +212,11 @@ func (c *Cerber) GenerateToken(service, userName, account, scope string, claims 
 	}
 	token.Header["x5c"] = array
 
-	// Set Cerber specific claims
-	// TODO: move time related configs into zone
-	duration, _ := time.ParseDuration("15m")
-	token.Claims["id"] = userName
-	token.Claims["exp"] = time.Now().Add(duration).Unix()
-	token.Claims["orig_iat"] = time.Now().Unix()
-
 	//Sign token
 	tokenString, err := token.SignedString(cert.PrivateKey)
 	if err != nil {
 		return nil, err
 	}
-	return &tokenString, nil
-}
 
-// ParseToken parse given token string and return instance of jwt.Token
-func (c *Cerber) ParseToken(tkn string) (*jwt.Token, error) {
-	// return jwt.Parse(tkn, func(token *jwt.Token) (interface{}, error) {
-	// 	return c.Key, nil
-	// })
-	return nil, errors.New("Not implemented yet")
+	return &tokenString, nil
 }
