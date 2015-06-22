@@ -11,6 +11,7 @@ import (
 	"gopkg.in/yaml.v2"
 
 	log "github.com/Sirupsen/logrus"
+	"github.com/xphoenix/cerber/api"
 )
 
 // DirectoryProvider watch given directory for yaml/json zone descriptions and
@@ -18,7 +19,7 @@ import (
 type DirectoryProvider struct {
 	url *url.URL
 
-	zones map[string]Zone
+	zones map[string]api.Zone
 }
 
 // URL returns URI for the current Provider. Protocol must be
@@ -95,7 +96,7 @@ func (d *DirectoryProvider) IsOnline() (bool, error) {
 }
 
 // FindZone returns first available zone known by the current Provider and has given name
-func (d *DirectoryProvider) FindZone(name string) (Zone, error) {
+func (d *DirectoryProvider) FindZone(name string) (api.Zone, error) {
 	name = strings.ToUpper(name)
 	z, ok := d.zones[name]
 	if !ok {
@@ -105,7 +106,7 @@ func (d *DirectoryProvider) FindZone(name string) (Zone, error) {
 	return z, nil
 }
 
-func (d *DirectoryProvider) registerZone(z Zone) {
+func (d *DirectoryProvider) registerZone(z api.Zone) {
 	name := strings.ToUpper(z.Name())
 	d.zones[name] = z
 }

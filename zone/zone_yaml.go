@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/xphoenix/cerber/api"
 	"github.com/xphoenix/cerber/config"
 )
 
@@ -18,8 +19,8 @@ type yamlZone struct {
 	ZTimeout    *time.Duration `yaml:"timeout"`
 	ZMaxRefresh time.Duration  `yaml:"maxrefresh"`
 
-	ZGroups []Group `yaml:"groups"`
-	ZUsers  []User  `yaml:"users"`
+	ZGroups []api.Group `yaml:"groups"`
+	ZUsers  []api.User  `yaml:"users"`
 
 	ZSign    SignInfo `yaml:"sign"`
 	ZHashing string   `yaml:"hashing"`
@@ -78,7 +79,7 @@ func (z *yamlZone) HashPassword(passwd string) (string, error) {
 }
 
 // FindUser returns user for the given id or nil if no user found
-func (z *yamlZone) FindUser(userID string) (usr *User, err error) {
+func (z *yamlZone) FindUser(userID string) (usr *api.User, err error) {
 	for _, usr := range z.ZUsers {
 		if usr.Name == userID {
 			return &usr, nil
@@ -88,7 +89,7 @@ func (z *yamlZone) FindUser(userID string) (usr *User, err error) {
 }
 
 // FindGroup performs lookup of the group by the given name
-func (z *yamlZone) FindGroup(groupID string) (*Group, error) {
+func (z *yamlZone) FindGroup(groupID string) (*api.Group, error) {
 	for _, grp := range z.ZGroups {
 		if grp.Name == groupID {
 			return &grp, nil

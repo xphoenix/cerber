@@ -1,222 +1,197 @@
-package cerber
+package main
 
 import (
-	"crypto/x509"
-	"encoding/base64"
 	"errors"
 	"fmt"
-	"time"
+	"io/ioutil"
+	"log"
+	"net/http"
+	"os"
+	"strings"
 
-	log "github.com/Sirupsen/logrus"
-	"github.com/dgrijalva/jwt-go"
+	"github.com/Sirupsen/logrus"
+	"github.com/ant0ine/go-json-rest/rest"
+
+	"github.com/coreos/go-systemd/journal"
+	"github.com/wercker/journalhook"
+	"github.com/xphoenix/cerber/api"
+	"github.com/xphoenix/cerber/config"
+	handlers "github.com/xphoenix/cerber/rest"
 	"github.com/xphoenix/cerber/zone"
 )
 
-// Cerber is a aunthentification & authoriation server.
-//
-// It handles diferent mechanisms of authntification, such are Basic, JWT, Facebook
-// e.t.c. Once logedin Cerber generates JWT token that could be used for authorization
-// in different actions
-type Cerber struct {
-	Realm     string
-	providers []zone.Provider
-}
-
-// New creates a new instance of cerber checking that passed parameters are all makes sense
-//
-// realm is auth realm url redable name
-// alg crypto algorhim used to sign token, see Cerber.SigningAlgorithm for possible values
-// key string used as a key to sign tokens
-// timeout fraction of time during what token is considered as valid. If not set default value of 15m is used
-// refresh maxmum time during what token is allowed to be refreshed. If not set default value if 1h is used
-func New(realm string) (instance *Cerber, err error) {
-	return &Cerber{
-		Realm:     realm,
-		providers: make([]zone.Provider, 0, 3),
-	}, nil
-}
-
-// AddProvider Registers new Cerber Zone Provider which will be used to lookup Authentification
-// zones
-func (c *Cerber) AddProvider(p zone.Provider) {
-	for _, ep := range c.providers {
-		if ep == p {
-			return
-		}
-	}
-
-	c.providers = append(c.providers, p)
-}
-
-// FindZone looks up zone with given name across all provider registered in the Cerber instance. If there is no
-// provider with Zone has given name error returns
-func (c *Cerber) FindZone(name string) (zone.Zone, error) {
-	for _, p := range c.providers {
-		z, err := p.FindZone(name)
-		if err != nil {
-			// TODO: Log only errors, do not log 'not found'
-			log.Debugf("Error query provider %s[%s]: %s\n", p.URL().String(), name, err)
-		}
-
-		if z != nil {
-			return z, nil
-		}
-	}
-	return nil, fmt.Errorf("There is no zone with name: %s", name)
-}
-
-// Authorize given user in the given zone
-// Provided password must be encrypted by zone specific method
-func (c *Cerber) Authorize(z zone.Zone, user, passwd string) ([]string, error) {
-	// TODO: check password, calculate & resolve actions
-	usr, err := z.FindUser(user)
+func main() {
+	// Load configuration file
+	cfg, err := loadConfig()
 	if err != nil {
-		return nil, fmt.Errorf("Failed to obtain user info: %s", err)
+		logrus.Panicf("Failed to load config: %s", err)
 	}
 
-	if usr.Passwd != passwd {
-		return nil, errors.New("Wrong password")
-	}
-
-	// Resolve user groups
-	actions := make([]string, 0, 3)
-	for _, g := range usr.Groups {
-		grp, err := z.FindGroup(g)
-		if err != nil {
-			return nil, fmt.Errorf("Failed to get group info: %s", g)
-		}
-		actions = append(actions, grp.Actions...)
-	}
-
-	return actions, nil
-}
-
-// GenerateToken creates new token for the given user
-func (c *Cerber) GenerateToken(service, userName, account, scope string, claims map[string]interface{}) (t *string, err error) {
-	// Get zone instance resposible for handling requested service
-	z, err := c.FindZone(service)
+	// Create applicaton
+	cerber, err := api.New(cfg.Realm)
 	if err != nil {
-		return nil, fmt.Errorf("Unknown zone: %s", service)
+		logrus.Panicf("Failed to create Cerber instance: %s", err)
 	}
 
-	// Copy claims first, later stages will override system claims with neccessary values
-	token := jwt.New(jwt.GetSigningMethod("RS256"))
-	for k, v := range claims {
-		token.Claims[k] = v
-	}
+	// Configure server
+	configureLogger(cfg.Log)
+	configureZoneProviders(cerber, cfg.Providers)
 
-	// Set Cerber specific claims
-	// TODO: move time related configs into zone
-	token.Claims["id"] = userName
-	token.Claims["aud"] = z.Name()
-	token.Claims["exp"] = time.Now().Add(z.Timeout()).Unix()
-	token.Claims["orig_iat"] = time.Now().Unix()
+	api := rest.NewApi()
+	configureAPI(api, cerber)
 
-	return c.signToken(z, token)
-}
+	// Spin up HTTP server
+	done := make(chan bool)
+	handler := api.MakeHandler()
 
-// ParseToken parse given token string, validates content and and return instance of jwt.Token
-func (c *Cerber) ParseToken(tokenInput string) (*jwt.Token, error) {
-	// JWT parse will call provided callback to get private key for signature verification. However
-	// it is neccessary to check if signing algorithm is the same as in zone. Zone name could be found
-	// in aud claim
-	t, err := jwt.Parse(tokenInput, func(token *jwt.Token) (interface{}, error) {
-		// Lookup for zone name
-		name := token.Claims["aud"].(string)
-		if name == "" {
-			return nil, errors.New("Input doesn't look like Cerber issued token")
-		}
+	unhandled := logrus.StandardLogger().Writer()
+	defer unhandled.Close()
 
-		// Find zone for verificaton
-		zone, err := c.FindZone(name)
-		if err != nil {
-			return nil, fmt.Errorf("Failed to find zone: %s", name)
-		}
-
-		// Verify used algorithm is the one zone expects to have
-		if token.Header["alg"] != "RS256" {
-			return nil, fmt.Errorf("Unexpected signing algorithm: %s", token.Header["alg"])
-		} else if _, ok := token.Method.(*jwt.SigningMethodRSA); !ok {
-			return nil, fmt.Errorf("Unexpected signing method: %v", token.Header["alg"])
-		}
-
-		// Use zone private key for validation
-		cert, err := zone.Certificate()
-		if err != nil {
-			return nil, fmt.Errorf("Failed to request zone key for validation: %s", zone.Name())
-		}
-
-		if cert.Leaf == nil {
-			// Use zone public key. Leaft certificate is the first in the chain
-			c, err := x509.ParseCertificate(cert.Certificate[0])
-			if err != nil {
-				return nil, fmt.Errorf("Failed to parse zone certificate: %s", err)
+	if cfg.HTTP != nil {
+		go func() {
+			srv := http.Server{
+				Addr:     fmt.Sprintf("%s:%d", cfg.HTTP.Host, cfg.HTTP.Port),
+				Handler:  handler,
+				ErrorLog: log.New(unhandled, "", 0),
 			}
-			cert.Leaf = c
+
+			logrus.WithField("address", srv.Addr).Info("Start HTTP interface")
+			err := srv.ListenAndServe()
+
+			logrus.WithField("reason", err).Error("HTTP server stopped")
+			done <- true
+		}()
+	}
+
+	// Spinup HTTP server
+	if cfg.HTTPS != nil {
+		go func() {
+			srv := http.Server{
+				Addr:     fmt.Sprintf("%s:%d", cfg.HTTPS.Host, cfg.HTTPS.Port),
+				Handler:  handler,
+				ErrorLog: log.New(unhandled, "", 0),
+			}
+
+			logrus.WithField("address", srv.Addr).Info("Start HTTPS interface")
+			err := srv.ListenAndServeTLS(cfg.HTTPS.Cert, cfg.HTTPS.Key)
+
+			logrus.WithField("reason", err).Error("HTTPS server stopped")
+			done <- true
+		}()
+	}
+
+	// Wit until one of interface dies
+	if cfg.HTTP != nil || cfg.HTTPS != nil {
+		<-done
+	}
+}
+
+func loadConfig() (config.Config, error) {
+	if len(os.Args) != 2 {
+		return config.Config{}, errors.New("Expected single command line argument - config file path")
+	}
+
+	// Load configuration
+	file, err := os.Open(os.Args[1])
+	if err != nil {
+		return config.Config{}, fmt.Errorf("Failed to open file: %s", err)
+	}
+
+	cfg, err := config.Load(file)
+	if err != nil {
+		return cfg, fmt.Errorf("Failed to load config: %s", err)
+	}
+
+	return cfg, nil
+}
+
+func configureLogger(cfg config.LogConfig) {
+	// Setup output
+	switch strings.ToUpper(cfg.Out) {
+	case "CONSOLE":
+		logrus.SetOutput(os.Stdout)
+	case "JOURNALD":
+		if !journal.Enabled() {
+			logrus.Panic("Journald is not available")
+		}
+		logrus.AddHook(&journalhook.JournalHook{})
+		logrus.SetOutput(ioutil.Discard)
+	default:
+		logrus.Panicf("Unknown logger output: %s", cfg.Out)
+	}
+
+	// Setup format
+	switch strings.ToUpper(cfg.Format) {
+	case "JSON":
+		logrus.SetFormatter(&logrus.JSONFormatter{})
+	case "TEXT":
+		logrus.SetFormatter(&logrus.TextFormatter{})
+	default:
+		logrus.Panicf("Unknown logger format: %s", cfg.Format)
+	}
+
+	// Setup minimum level
+	level, err := logrus.ParseLevel(strings.ToLower(cfg.Level))
+	if err != nil {
+		logrus.Panicf("Unknown logger level: %s", cfg.Level)
+	}
+	logrus.SetLevel(level)
+}
+
+func configureZoneProviders(c *api.Cerber, cfg []string) {
+	for _, location := range cfg {
+		// Resolve location from config
+		p, err := zone.NewProvider(location)
+		if err != nil {
+			logrus.Warnf("Error creating provider for location '%s': %s", location, err)
+			continue
 		}
 
-		return cert.Leaf.PublicKey, nil
-	})
+		// Initializate new provider
+		err2 := p.Start()
+		if err2 != nil {
+			logrus.Warnf("Failed to start zone provider '%s': %s", location, err2)
+			continue
+		}
 
-	if err != nil {
-		return nil, fmt.Errorf("Failed to parse token: %s", err)
+		// Register provider in the Cerber instance
+		c.AddProvider(p)
 	}
-
-	return t, nil
 }
 
-// RefreshToken extends token life for zone Timeout starting from the call time. If Zone#MaxRefresh passed since token
-// was issued then refresh is not possible and error returns. In case if token was refreshed fully signed token string
-// returns
-func (c *Cerber) RefreshToken(token *jwt.Token) (*string, error) {
-	name := token.Claims["aud"].(string)
-	if name == "" {
-		return nil, errors.New("Input doesn't look like Cerber issued token")
-	}
+func configureAPI(api *rest.Api, cerber *api.Cerber) {
+	// Create middleware chains
+	api.Use(
+		&handlers.LogMiddleware{Logger: logrus.StandardLogger()},
+		// Authentification & Authorization middleware to control access to API endpoint
+		&handlers.CerberMiddleware{
+			Cerber: cerber,
 
-	// Find zone for verificaton
-	zone, err := c.FindZone(name)
-	if err != nil {
-		return nil, fmt.Errorf("Failed to find zone: %s", name)
-	}
+			// Allow login to bypass JWT auth
+			ExceptionSelector: func(request *rest.Request) (bypass bool, err error) {
+				return request.URL.Path == "/login", nil
+			},
 
-	origIat := int64(token.Claims["orig_iat"].(float64))
-	if zone.MaxRefresh() > 0 && origIat < time.Now().Add(-zone.MaxRefresh()).Unix() {
-		return nil, fmt.Errorf("Token excited maximum lifetime configured for the zone, login again: %s", name)
-	}
+			// Allow all request which has JWT token
+			Authorizator: nil,
+		},
+		&rest.TimerMiddleware{},
+		&rest.RecorderMiddleware{},
+		&rest.PoweredByMiddleware{},
+		&rest.RecoverMiddleware{
+			EnableResponseStackTrace: true,
+		},
+		&rest.JsonIndentMiddleware{},
+		&rest.ContentTypeCheckerMiddleware{},
+		&rest.GzipMiddleware{},
+	)
 
-	newToken := jwt.New(jwt.GetSigningMethod("RS256"))
-	for key := range token.Claims {
-		newToken.Claims[key] = token.Claims[key]
-	}
+	// API definition
+	router, _ := rest.MakeRouter(
+		rest.Get("/login", handlers.BasicLogin),
+		rest.Get("/validate", handlers.ValidateToken),
+		rest.Get("/refresh", handlers.RefreshToken),
+	)
 
-	newToken.Claims["id"] = token.Claims["id"]
-	newToken.Claims["exp"] = time.Now().Add(zone.Timeout()).Unix()
-	newToken.Claims["orig_iat"] = origIat
-	return c.signToken(zone, newToken)
-}
-
-func (c *Cerber) signToken(z zone.Zone, token *jwt.Token) (*string, error) {
-	// Create token
-	cert, err := z.Certificate()
-	if err != nil {
-		return nil, fmt.Errorf("Failed to get certificate for the zone '%s': %s", z.Name(), err)
-	}
-
-	// Copy certificates will be used to validate signature
-	// TODO: support other signing methods
-	size := len(cert.Certificate)
-	array := make([]string, size, size)
-	for i, cert := range cert.Certificate {
-		array[i] = base64.StdEncoding.EncodeToString(cert)
-	}
-	token.Header["x5c"] = array
-
-	//Sign token
-	tokenString, err := token.SignedString(cert.PrivateKey)
-	if err != nil {
-		return nil, err
-	}
-
-	return &tokenString, nil
+	api.SetApp(router)
 }

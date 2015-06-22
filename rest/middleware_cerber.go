@@ -7,13 +7,13 @@ import (
 	log "github.com/Sirupsen/logrus"
 	"github.com/ant0ine/go-json-rest/rest"
 	"github.com/dgrijalva/jwt-go"
-	"github.com/xphoenix/cerber"
+	"github.com/xphoenix/cerber/api"
 )
 
 // CerberMiddleware is go-rest middlware that protect resources with JWT tokens
 type CerberMiddleware struct {
 	// Cerber instance to create/validate tokens
-	Cerber *cerber.Cerber
+	Cerber *api.Cerber
 
 	// ExceptionSelector is a function allows to bypass token check
 	// Could be nil in that case all requests require a valid JWT token to be executed
@@ -84,8 +84,8 @@ func (mw *CerberMiddleware) MiddlewareFunc(handler rest.HandlerFunc) rest.Handle
 }
 
 // Cerber extracts cerber instance from request or fail in panic
-func Cerber(request *rest.Request) *cerber.Cerber {
-	c, ok := request.Env["CERBER"].(*cerber.Cerber)
+func Cerber(request *rest.Request) *api.Cerber {
+	c, ok := request.Env["CERBER"].(*api.Cerber)
 	if !ok {
 		log.Panic("CERBER environment variable has wrong type")
 	}
@@ -104,7 +104,7 @@ func Token(request *rest.Request) *jwt.Token {
 
 // Extract token from the request and decode payload
 // by using provided Cerber instance
-func extractToken(request *rest.Request, cbr *cerber.Cerber) (*jwt.Token, error) {
+func extractToken(request *rest.Request, cbr *api.Cerber) (*jwt.Token, error) {
 	authHeader := request.Header.Get("Authorization")
 
 	if authHeader == "" {

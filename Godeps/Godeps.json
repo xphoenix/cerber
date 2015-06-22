@@ -8,9 +8,23 @@
 			"Rev": "e3eccfaeb58b95c9ce22aea6867562f07a0d68c7"
 		},
 		{
+			"ImportPath": "github.com/ant0ine/go-json-rest/rest",
+			"Comment": "v3.2.0-4-g4c0ab2b",
+			"Rev": "4c0ab2b46b2318802f6502ea84031905d53cbb2a"
+		},
+		{
+			"ImportPath": "github.com/coreos/go-systemd/journal",
+			"Comment": "v2-57-gbe94bc7",
+			"Rev": "be94bc700879ae8217780e9d141789a2defa302b"
+		},
+		{
 			"ImportPath": "github.com/dgrijalva/jwt-go",
 			"Comment": "v2.2.0-23-g5ca8014",
 			"Rev": "5ca80149b9d3f8b863af0e2bb6742e608603bd99"
+		},
+		{
+			"ImportPath": "github.com/wercker/journalhook",
+			"Rev": "0b84f81e727b9e3c222ae1873c29ca6678c59db0"
 		},
 		{
 			"ImportPath": "gopkg.in/yaml.v2",

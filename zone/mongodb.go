@@ -1,13 +1,17 @@
 package zone
 
-import "net/url"
+import (
+	"net/url"
+
+	"github.com/xphoenix/cerber/api"
+)
 
 // MongodbProvider loads zone, user, groups and keys information
 // from the mongodb instance
 type MongodbProvider struct {
 	url *url.URL
 
-	zones []Zone
+	zones []api.Zone
 }
 
 // URL returns URI for the current Provider. Protocol must be
@@ -40,6 +44,6 @@ func (m *MongodbProvider) IsOnline() (bool, error) {
 }
 
 // FindZone returns all available zones known by the current Provider
-func (m *MongodbProvider) FindZone(zone string) (Zone, error) {
+func (m *MongodbProvider) FindZone(zone string) (api.Zone, error) {
 	return nil, nil
 }
