@@ -55,7 +55,7 @@ func (c *Cerber) FindZone(name string) (zone.Zone, error) {
 		z, err := p.FindZone(name)
 		if err != nil {
 			// TODO: Log only errors, do not log 'not found'
-			log.Warnf("Error query provider %s[%s]: %s\n", p.URL().String(), name, err)
+			log.Debugf("Error query provider %s[%s]: %s\n", p.URL().String(), name, err)
 		}
 
 		if z != nil {
